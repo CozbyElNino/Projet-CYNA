@@ -2,49 +2,45 @@ provider "azurerm" {
   features {}
 }
 
-resource "azurerm_resource_group" "rg" {
-  name     = "rg-webserver"
-  location = "West Europe"
-}
 
-resource "azurerm_virtual_network" "vnet" {
-  name                = "vnet-webserver"
-  address_space       = ["10.0.0.0/16"]
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-}
 
-resource "azurerm_subnet" "subnet" {
-  name                 = "subnet-webserver"
-  resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
-  address_prefixes     = ["10.0.1.0/24"]
+data "azurerm_virtual_network" "existing_vnet" {
+  name                = "Splunk-vnet"
+  resource_group_name = "Cyna" 
+}
+data "azurerm_subnet" "existing_subnet" {
+  name                 = "default"
+  virtual_network_name = "Splunk-vnet"
+  resource_group_name  = "Cyna"
 }
 
 resource "azurerm_network_interface" "nic" {
   name                = "nic-webserver"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = "West Europe"
+  resource_group_name = "Cyna"
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = azurerm_subnet.subnet.id
+    subnet_id                     = data.azurerm_subnet.existing_subnet.id
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.public_ip.id
   }
 }
 
+
+
 resource "azurerm_public_ip" "public_ip" {
   name                = "publicip-webserver"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = "West Europe"
+  resource_group_name = "Cyna"
   allocation_method   = "Static"
 }
 
+
 resource "azurerm_network_security_group" "nsg" {
   name                = "nsg-webserver"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = "West Europe"
+  resource_group_name = "Cyna"
 
   security_rule {
     name                       = "AllowHTTP"
@@ -69,14 +65,28 @@ resource "azurerm_network_security_group" "nsg" {
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
+  
+  security_rule {
+    name                       = "AllowSplunkForward"
+    priority                   = 1003
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "9997"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
 }
 
+
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                = "webserver-vm"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  name                = "Nginx"
+  resource_group_name = "Cyna"
+  location            = "West Europe"
   size                = "Standard_B1s"
   admin_username      = "cyna"
+
   network_interface_ids = [
     azurerm_network_interface.nic.id,
   ]
@@ -110,33 +120,42 @@ resource "azurerm_linux_virtual_machine" "vm" {
 apt-get update
 apt-get install -y wget nginx
 
-# Démarrer et activer nginx
-systemctl start nginx
+# Activer et démarrer nginx
 systemctl enable nginx
+systemctl start nginx
 
-# Télécharger Splunk Universal Forwarder
+# Télécharger et installer Splunk Universal Forwarder
 wget -O /tmp/splunkforwarder.deb "https://download.splunk.com/products/universalforwarder/releases/9.4.2/linux/splunkforwarder-9.4.2-e9664af3d956-linux-amd64.deb"
-
-# Installer le .deb
 dpkg -i /tmp/splunkforwarder.deb
 
-# Démarrer Splunk et accepter la licence
-/opt/splunkforwarder/bin/splunk start --accept-license --answer-yes --no-prompt
+# Injecter le fichier user-seed.conf pour créer admin/projetcyna1!
+mkdir -p /opt/splunkforwarder/etc/system/local
+cat <<EOF2 > /opt/splunkforwarder/etc/system/local/user-seed.conf
+[user_info]
+USERNAME = admin
+PASSWORD = Projetcyna1!
+EOF2
 
-# Ajouter les fichiers de logs nginx à surveiller
-/opt/splunkforwarder/bin/splunk add monitor /var/log/nginx/access.log
-/opt/splunkforwarder/bin/splunk add monitor /var/log/nginx/error.log
+# Supprimer tout passwd existant pour forcer l'initialisation propre
+rm -f /opt/splunkforwarder/etc/passwd
 
-# Ajouter un serveur de réception (modifie 10.0.0.4:9997 si besoin)
-/opt/splunkforwarder/bin/splunk add forward-server 10.0.0.4:9997
+# Démarrer Splunk pour prise en compte du compte admin
+/opt/splunkforwarder/bin/splunk start --accept-license --no-prompt
 
-# Activer le démarrage automatique de Splunk
-/opt/splunkforwarder/bin/splunk enable boot-start
+# Ajouter le serveur d'indexation Splunk
+/opt/splunkforwarder/bin/splunk add forward-server 10.0.0.4:9997 -auth admin:Projetcyna1!
 
-# Lancer le service Splunk au boot
-systemctl start splunkforwarder
+# Ajouter les logs nginx (si pas déjà présents)
+/opt/splunkforwarder/bin/splunk add monitor /var/log/nginx/access.log -auth admin:Projetcyna1!
+/opt/splunkforwarder/bin/splunk add monitor /var/log/nginx/error.log -auth admin:Projetcyna1!
+
+# Activer le démarrage automatique
+/opt/splunkforwarder/bin/splunk enable boot-start --accept-license --answer-yes --no-prompt --seed-passwd Projetcyna1!
+
+# Lancer Splunk maintenant
+/opt/splunkforwarder/bin/splunk restart
 EOF
- )
+)
 
 }
 
