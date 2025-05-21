@@ -139,6 +139,10 @@ EOF2
 # Supprimer tout passwd existant pour forcer l'initialisation propre
 rm -f /opt/splunkforwarder/etc/passwd
 
+# Forcer le hostname Splunk à "Nginx"
+echo "[default]" > /opt/splunkforwarder/etc/system/local/inputs.conf
+echo "host = Nginx" >> /opt/splunkforwarder/etc/system/local/inputs.conf
+
 # Démarrer Splunk pour prise en compte du compte admin
 /opt/splunkforwarder/bin/splunk start --accept-license --no-prompt
 
