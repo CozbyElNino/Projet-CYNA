@@ -1,0 +1,147 @@
+provider "azurerm" {
+  features {}
+}
+
+resource "azurerm_resource_group" "rg" {
+  name     = "rg-webserver"
+  location = "West Europe"
+}
+
+resource "azurerm_virtual_network" "vnet" {
+  name                = "vnet-webserver"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+resource "azurerm_subnet" "subnet" {
+  name                 = "subnet-webserver"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+resource "azurerm_network_interface" "nic" {
+  name                = "nic-webserver"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.subnet.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.public_ip.id
+  }
+}
+
+resource "azurerm_public_ip" "public_ip" {
+  name                = "publicip-webserver"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Static"
+}
+
+resource "azurerm_network_security_group" "nsg" {
+  name                = "nsg-webserver"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  security_rule {
+    name                       = "AllowHTTP"
+    priority                   = 1001
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  security_rule {
+    name                       = "AllowSSH"
+    priority                   = 1002
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+}
+
+resource "azurerm_linux_virtual_machine" "vm" {
+  name                = "webserver-vm"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  size                = "Standard_B1s"
+  admin_username      = "cyna"
+  network_interface_ids = [
+    azurerm_network_interface.nic.id,
+  ]
+
+  admin_ssh_key {
+    username   = "cyna"
+    public_key = file("C:/Users/Disque dur/.ssh/id_rsa.pub")
+
+  }
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+    name                 = "osdisk-webserver"
+  }
+
+    source_image_reference {
+    publisher = "Debian"
+    offer     = "debian-13-daily"
+    sku       = "13"
+    version   = "latest"
+    }
+
+
+
+  computer_name                  = "webserver"
+  disable_password_authentication = true
+
+ custom_data = base64encode(<<EOF
+#!/bin/bash
+apt-get update
+apt-get install -y wget nginx
+
+# Démarrer et activer nginx
+systemctl start nginx
+systemctl enable nginx
+
+# Télécharger Splunk Universal Forwarder
+wget -O /tmp/splunkforwarder.deb "https://download.splunk.com/products/universalforwarder/releases/9.4.2/linux/splunkforwarder-9.4.2-e9664af3d956-linux-amd64.deb"
+
+# Installer le .deb
+dpkg -i /tmp/splunkforwarder.deb
+
+# Démarrer Splunk et accepter la licence
+/opt/splunkforwarder/bin/splunk start --accept-license --answer-yes --no-prompt
+
+# Ajouter les fichiers de logs nginx à surveiller
+/opt/splunkforwarder/bin/splunk add monitor /var/log/nginx/access.log
+/opt/splunkforwarder/bin/splunk add monitor /var/log/nginx/error.log
+
+# Ajouter un serveur de réception (modifie 10.0.0.4:9997 si besoin)
+/opt/splunkforwarder/bin/splunk add forward-server 10.0.0.4:9997
+
+# Activer le démarrage automatique de Splunk
+/opt/splunkforwarder/bin/splunk enable boot-start
+
+# Lancer le service Splunk au boot
+systemctl start splunkforwarder
+EOF
+ )
+
+}
+
+
+output "public_ip_address" {
+  value = azurerm_public_ip.public_ip.ip_address
+  description = "IP publique du serveur web"
+}
