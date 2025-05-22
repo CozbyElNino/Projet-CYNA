@@ -112,7 +112,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
 
 
-  computer_name                  = "webserver"
+  computer_name                  = "Nginx"
   disable_password_authentication = true
 
  custom_data = base64encode(<<EOF
@@ -120,15 +120,12 @@ resource "azurerm_linux_virtual_machine" "vm" {
 apt-get update
 apt-get install -y wget nginx
 
-# Activer et démarrer nginx
 systemctl enable nginx
 systemctl start nginx
 
-# Télécharger et installer Splunk Universal Forwarder
 wget -O /tmp/splunkforwarder.deb "https://download.splunk.com/products/universalforwarder/releases/9.4.2/linux/splunkforwarder-9.4.2-e9664af3d956-linux-amd64.deb"
 dpkg -i /tmp/splunkforwarder.deb
 
-# Injecter le fichier user-seed.conf pour créer admin/projetcyna1!
 mkdir -p /opt/splunkforwarder/etc/system/local
 cat <<EOF2 > /opt/splunkforwarder/etc/system/local/user-seed.conf
 [user_info]
@@ -136,27 +133,20 @@ USERNAME = admin
 PASSWORD = Projetcyna1!
 EOF2
 
-# Supprimer tout passwd existant pour forcer l'initialisation propre
 rm -f /opt/splunkforwarder/etc/passwd
 
-# Forcer le hostname Splunk à "Nginx"
-echo "[default]" > /opt/splunkforwarder/etc/system/local/inputs.conf
-echo "host = Nginx" >> /opt/splunkforwarder/etc/system/local/inputs.conf
 
-# Démarrer Splunk pour prise en compte du compte admin
+
 /opt/splunkforwarder/bin/splunk start --accept-license --no-prompt
 
-# Ajouter le serveur d'indexation Splunk
 /opt/splunkforwarder/bin/splunk add forward-server 10.0.0.4:9997 -auth admin:Projetcyna1!
 
-# Ajouter les logs nginx (si pas déjà présents)
 /opt/splunkforwarder/bin/splunk add monitor /var/log/nginx/access.log -auth admin:Projetcyna1!
 /opt/splunkforwarder/bin/splunk add monitor /var/log/nginx/error.log -auth admin:Projetcyna1!
 
-# Activer le démarrage automatique
+
 /opt/splunkforwarder/bin/splunk enable boot-start --accept-license --answer-yes --no-prompt --seed-passwd Projetcyna1!
 
-# Lancer Splunk maintenant
 /opt/splunkforwarder/bin/splunk restart
 EOF
 )
