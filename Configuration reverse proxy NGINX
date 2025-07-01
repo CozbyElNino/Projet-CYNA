@@ -1,0 +1,49 @@
+- name: Configuration de NGINX comme reverse proxy
+  hosts: web
+  become: true
+  vars:
+    nginx_proxy_conf_path: /etc/nginx/sites-available/reverse-proxy
+    nginx_proxy_link: /etc/nginx/sites-enabled/reverse-proxy
+
+  tasks:
+
+    - name: Installer NGINX
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Supprimer la configuration par défaut
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Déployer la configuration reverse proxy
+      copy:
+        dest: "{{ nginx_proxy_conf_path }}"
+        content: |
+          server {
+              listen 80;
+
+              location / {
+                  proxy_pass http://localhost:3000;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host $host;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+
+    - name: Créer un lien symbolique vers sites-enabled
+      file:
+        src: "{{ nginx_proxy_conf_path }}"
+        dest: "{{ nginx_proxy_link }}"
+        state: link
+        force: yes
+
+    - name: Redémarrer NGINX
+      service:
+        name: nginx
+        state: restarted
+        enabled: true
