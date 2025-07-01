@@ -15,12 +15,12 @@ data "azurerm_subnet" "existing_subnet" {
 }
 
 resource "azurerm_network_interface" "nic" {
-  name                = "nic-webserver"
+  name                = "nic-cyna"
   location            = "West Europe"
   resource_group_name = "Cyna"
 
   ip_configuration {
-    name                          = "internal"
+    name                          = "internalcyna"
     subnet_id                     = data.azurerm_subnet.existing_subnet.id
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.public_ip.id
@@ -30,7 +30,7 @@ resource "azurerm_network_interface" "nic" {
 
 
 resource "azurerm_public_ip" "public_ip" {
-  name                = "publicip-webserver"
+  name                = "publicip-webcyna"
   location            = "West Europe"
   resource_group_name = "Cyna"
   allocation_method   = "Static"
@@ -38,7 +38,7 @@ resource "azurerm_public_ip" "public_ip" {
 
 
 resource "azurerm_network_security_group" "nsg" {
-  name                = "nsg-webserver"
+  name                = "nsg-webcyna"
   location            = "West Europe"
   resource_group_name = "Cyna"
 
@@ -100,7 +100,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "Standard_LRS"
-    name                 = "osdisk-webserver"
+    name                 = "osdisk-webcyna2"
   }
 
     source_image_reference {
@@ -118,7 +118,11 @@ resource "azurerm_linux_virtual_machine" "vm" {
  custom_data = base64encode(<<EOF
 #!/bin/bash
 apt-get update
-apt-get install -y wget nginx
+apt-get install -y wget nginx software-properties-common
+
+# Installation d'Ansible
+apt-add-repository --yes --update ppa:ansible/ansible
+apt-get install -y ansible
 
 systemctl enable nginx
 systemctl start nginx
